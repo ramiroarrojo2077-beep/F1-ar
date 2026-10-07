@@ -15,7 +15,9 @@ pórtico con semáforo, barreras de gomas, laguna y un dirigible.
 
 ## Cómo se juega
 
-1. Elegí vueltas (3–12), cantidad de autos (8–20) y si hay incidentes.
+1. Elegí vueltas (3–12), cantidad de autos (8–20), si hay incidentes y cómo se
+   arma la grilla: por **clasificación**, **mezclada** o **invertida** (la más
+   entretenida: los rápidos largan atrás).
 2. **Jugar en AR**: mové el teléfono despacio hasta que aparezca el aro sobre la
    mesa o el piso. Ajustá el tamaño (0,4 m a 4 m), girá si querés y tocá la
    pantalla para colocar el autódromo.
@@ -50,10 +52,39 @@ pista se cruza a sí misma (como Suzuka).
 
 La simulación calcula la **trazada ideal** (afuera–vértice–afuera) y el perfil
 de velocidades (frenadas y aceleraciones). Cada auto tiene su ritmo según
-escudería, piloto, "forma del día", desgaste de gomas, rebufo y DRS; hay
-largadas buenas y malas, adelantamientos por adentro, autos que se pasan de largo,
-trompos, roturas de motor y banderas azules a los doblados. Escuderías y
-pilotos son ficticios.
+escudería, piloto y "forma del día", y larga con gomas **blandas, medias o
+duras** (las blandas son más rápidas al principio y se gastan antes, así que a
+mitad de carrera se dan vuelta las cosas). Hay rebufo y DRS en las rectas,
+adelantamientos con frenada tardía por adentro, largadas buenas y malas, autos
+que se pasan de largo, trompos, roturas de motor y banderas azules a los
+doblados. En una carrera de 5 vueltas con 12 autos hay unos 20–25
+adelantamientos. Escuderías y pilotos son ficticios.
+
+## App para Android (APK)
+
+En `android/` está la app: trae el juego adentro (funciona sin internet), lo
+sirve desde un servidor local (`http://127.0.0.1`) y lo abre en una pestaña de
+Chrome, porque la realidad aumentada (WebXR) solo anda en el navegador, no en el
+WebView de las apps. Si no hay Chrome, ofrece el modo 3D dentro de la app.
+
+- Cada push compila el APK en GitHub Actions (**Actions → APK de Android →
+  artefacto F1-AR-apk**).
+- Para compilarlo a mano (Ubuntu/Debian, sin Gradle):
+  ```bash
+  sudo apt-get install aapt zipalign apksigner dalvik-exchange
+  ANDROID_JAR=/ruta/a/android-34/android.jar android/build.sh   # -> android/build/F1-AR.apk
+  ```
+- Instalación: abrir el APK en el teléfono y permitir "instalar apps de fuentes
+  desconocidas". Mientras se juega, la app muestra una notificación "partida en
+  curso": es lo que evita que Android duerma el servidor interno.
+- La clave de firma `android/f1ar-debug.keystore` es **de prueba y pública**
+  (sirve para que cualquiera recompile y actualice su propia instalación). Para
+  distribuir la app, firmala con tu propia clave privada:
+  `KEYSTORE=/ruta/clave.jks KS_PASS=... KEY_ALIAS=... android/build.sh`.
+- Desde 2027 Android exige que las apps instaladas por fuera de Play Store
+  estén registradas por un desarrollador verificado (en Brasil, Indonesia,
+  Singapur y Tailandia ya rige). Ver
+  [developer.android.com/developer-verification](https://developer.android.com/developer-verification).
 
 ## Requisitos
 
@@ -100,6 +131,8 @@ Chrome del teléfono (localhost cuenta como seguro).
 | `js/hud.js` | Tabla de posiciones, minimapa, ficha del auto, pronóstico, resultados |
 | `js/audio.js` | Sonido sintetizado (motores, semáforo, hinchada) |
 | `js/teams.js` | Escuderías y pilotos |
+| `sw.js`, `manifest.webmanifest` | Juego sin conexión e instalable |
+| `android/` | App de Android (servidor local + pestaña de Chrome) y script de compilación |
 
 ### Armar tu propia pista
 
