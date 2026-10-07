@@ -38,7 +38,7 @@ export const CIRCUITS = {
       { x: 30, z: 84, len: 84, rows: 6, main: true },
       { x: 134, z: 43, len: 30, rows: 5 },
       { x: -138, z: 42, len: 30, rows: 5 },
-      { x: -88, z: -96, len: 30, rows: 5 },
+      { x: -25, z: -84, len: 30, rows: 5 },
     ],
     pit: { from: -64, to: 46 },
     pond: { x: 27, z: -58, rx: 13, rz: 8 },

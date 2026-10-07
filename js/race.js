@@ -207,7 +207,7 @@ export class Race {
       } else {
         target = mk.t < 1.6 ? 0 : target * 0.6;
         c.v = Math.max(0, c.v - 30 * dt);
-        c.spin = mk.spinDir * easeOut(Math.min(1, mk.t / 1.6)) * Math.PI * 2.5;
+        c.spin = mk.spinDir * easeOut(Math.min(1, mk.t / 1.6)) * Math.PI * 2; // una vuelta completa
         c.d += (mk.side * (this.lim + 0.8) - c.d) * Math.min(1, dt * 1.5);
       }
       if (mk.t > mk.dur) { c.mistake = null; c.spin = 0; }
@@ -234,7 +234,7 @@ export class Race {
       if (c.lapsDone >= 1 && gapT < 1 && track.speedAt(c.s) > PHYS.vTop * 0.9) c.boost += 0.06;
       target *= c.boost;
     }
-    if (this.time < 5) target *= c.launch;
+    if (this.time < 5) target *= Math.min(1, c.launch);
 
     // bandera azul: hacerse a un lado
     let desired = c.passD !== null ? c.passD : rl;

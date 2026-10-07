@@ -79,7 +79,7 @@ button { font: inherit; color: inherit; }
 .tag { margin: 6px 0 0; color: var(--muted); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.8rem; }
 
 .circuit { display: flex; gap: 14px; align-items: center; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
-#menu-map { width: 120px; height: 100px; flex: none; }
+#menu-map { width: 120px; height: 100px; flex: none; transform: rotate(180deg); }
 .circuit-info h2 { margin: 0; font-size: 1.2rem; line-height: 1.15; }
 .circuit-info p { margin: 2px 0 6px; color: var(--muted); font-size: 0.9rem; }
 #circuit-stats { display: grid; grid-template-columns: repeat(3, auto); gap: 2px 14px; margin: 0; font-size: 0.8rem; }
@@ -172,6 +172,7 @@ button { font: inherit; color: inherit; }
 #minimap {
   position: absolute; right: 8px; top: calc(56px + var(--safe-t)); width: 128px; height: 100px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px;
+  transform: rotate(180deg); /* misma orientación que la vista inicial */
 }
 
 #lights {
@@ -209,7 +210,7 @@ button { font: inherit; color: inherit; }
 @keyframes tickin { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 #carcard {
-  position: absolute; right: 8px; top: calc(166px + var(--safe-t)); width: 180px;
+  position: absolute; right: 8px; top: calc(200px + var(--safe-t)); width: 180px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px;
   font-size: 0.82rem; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
@@ -223,7 +224,7 @@ button { font: inherit; color: inherit; }
 .num { display: inline-grid; place-items: center; min-width: 24px; height: 20px; border-radius: 5px; font-size: 0.78rem; font-weight: 900; padding: 0 4px; }
 
 #mypick {
-  position: absolute; right: 8px; bottom: calc(12px + var(--safe-b));
+  position: absolute; right: 8px; top: calc(164px + var(--safe-t));
   background: var(--panel); border: 1px solid rgba(255, 212, 0, 0.5); border-radius: 10px; padding: 5px 10px;
   font-weight: 700; font-size: 0.82rem; color: var(--yellow);
 }
@@ -268,7 +269,10 @@ button { font: inherit; color: inherit; }
   .trow { grid-template-columns: 18px 4px 1fr auto; gap: 4px; padding: 1px 6px; height: 21px; }
   .trow .g { font-size: 0.7rem; }
   #minimap { width: 104px; height: 82px; }
-  #carcard { top: calc(146px + var(--safe-t)); width: 150px; }
+  #carcard { top: calc(178px + var(--safe-t)); width: 150px; }
+  #mypick { top: calc(144px + var(--safe-t)); font-size: 0.74rem; padding: 4px 8px; }
+  #ticker { bottom: calc(8px + var(--safe-b)); }
+  .tick { font-size: 0.82rem; padding: 6px 10px; }
   #carcard .speed { font-size: 1.3rem; }
   .icon { min-width: 36px; height: 36px; }
   .lapbox, .timebox { height: 36px; padding: 2px 8px; }

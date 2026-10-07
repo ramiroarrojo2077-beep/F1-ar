@@ -65,7 +65,7 @@ export function buildTrackMesh(track) {
   const lanes = [-1, -0.66, -0.33, 0, 0.33, 0.66, 1].map(f => f * half);
   const shade = (i, d) => {
     const rl = track.rl[track.idx(i)];
-    const k = Math.exp(-((d - rl) / 2.2) ** 2);
+    const k = Math.exp(-(((d - rl) / 2.2) ** 2));
     const noise = 0.96 + 0.04 * Math.sin(i * 0.37) * Math.sin(i * 0.11 + d);
     return base.clone().multiplyScalar((1 - 0.35 * k) * noise);
   };
@@ -123,10 +123,10 @@ export function buildTrackMesh(track) {
   const gSide = new Int8Array(N);
   for (let i = 0; i < N; i++) {
     const k = track.curv[i];
-    if (Math.abs(k) > 1 / 30 && P[i * 3 + 1] < 0.3) {
+    if (Math.abs(k) > 1 / 19 && P[i * 3 + 1] < 0.3) {
       for (let j = -25; j <= 25; j++) {
         const q = track.idx(i + j);
-        const w = 9 * (1 - Math.abs(j) / 26);
+        const w = 8 * (1 - Math.abs(j) / 26);
         if (w > gw[q]) { gw[q] = w; gSide[q] = k > 0 ? -1 : 1; } // afuera de la curva
       }
     }

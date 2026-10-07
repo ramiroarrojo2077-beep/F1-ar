@@ -412,8 +412,8 @@ function buildPit(track, pit, mainStand) {
   for (let k = 0; k < pts.length - 1; k++) {
     const s0 = pts[k], s1 = pts[k + 1];
     const taper = (s) => clamp01(Math.min(s - pit.from, pit.to - s) / 14);
-    const w0 = 1 + 6 * taper(s0), w1 = 1 + 6 * taper(s1);
-    const a0 = side * (half + 0.2), a1 = side * (half + 0.2 + w0), b1 = side * (half + 0.2 + w1);
+    const w0 = 0.5 + 6 * taper(s0), w1 = 0.5 + 6 * taper(s1);
+    const a0 = side * (half + 1.3), a1 = side * (half + 1.3 + w0), b1 = side * (half + 1.3 + w1);
     const [p, q, r2, t2] = side > 0
       ? [at(s0, a0, 0.05), at(s0, a1, 0.05), at(s1, b1, 0.05), at(s1, a0, 0.05)]
       : [at(s0, a1, 0.05), at(s0, a0, 0.05), at(s1, a0, 0.05), at(s1, b1, 0.05)];
@@ -539,6 +539,7 @@ function buildBoards(st) {
   return g;
 }
 
+// cartel con texto legible de los dos lados (dos planos espalda con espalda)
 function textPlane(text, w, h, bg, fg) {
   const c = document.createElement('canvas');
   c.width = 512; c.height = Math.round(512 * h / w);
@@ -549,7 +550,15 @@ function textPlane(text, w, h, bg, fg) {
   g.fillText(text, c.width / 2, c.height / 2 + 4);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: t, side: THREE.DoubleSide, roughness: 0.5 }));
+  const mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 });
+  const geo = new THREE.PlaneGeometry(w, h);
+  const grp = new THREE.Group();
+  const front = new THREE.Mesh(geo, mat);
+  const back = new THREE.Mesh(geo, mat);
+  back.rotation.y = Math.PI;
+  back.position.z = -0.02;
+  grp.add(front, back);
+  return grp;
 }
 
 // ---------------------------------------------------------------- banderas
