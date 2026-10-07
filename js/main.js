@@ -790,7 +790,7 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 }
 
 // para pruebas automáticas
-window.__f1ar = { app, get race() { return race; }, settings, start3D, startRace, finishBuildInstantly, hud, contrast };
+window.__f1ar = { app, get race() { return race; }, settings, start3D, startRace, finishBuildInstantly, hud, contrast, renderer, scene, camera, setCamMode, selectCar };
 
 // ============================================================ utilidades
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2; }
