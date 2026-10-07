@@ -24,8 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # solo los archivos del juego (no la app Android ni su clave de firma)
+      - name: Armar el sitio
+        run: |
+          mkdir -p _site
+          cp -R index.html manifest.webmanifest sw.js .nojekyll css fonts icons js vendor docs _site/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

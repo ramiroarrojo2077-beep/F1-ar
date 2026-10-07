@@ -1,10 +1,11 @@
 // Service worker: guarda todos los archivos del juego para poder jugar sin
-// conexión (y, en la app de Android, aunque el sistema cierre el servidor interno).
-// Estrategia "red primero": si hay red se usa la versión nueva y se actualiza la
-// caché; si no, se sirve lo guardado.
-const CACHE = 'f1ar-v2';
+// conexión (y, en la app de Android, aunque el sistema cierre o congele el
+// servidor interno).
+// Estrategia "red primero con tiempo límite": si la red responde rápido se usa
+// la versión nueva y se actualiza la caché; si falla o tarda, se sirve lo
+// guardado (y si no hay nada guardado, se sigue esperando a la red).
+const CACHE = 'f1ar-v3';
 const FILES = [
-  './',
   './index.html',
   './manifest.webmanifest',
   './css/style.css',
@@ -32,7 +33,11 @@ const FILES = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(FILES.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -43,18 +48,36 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// si el servidor no respondió hace poco, no hacer esperar a cada archivo
+let slowUntil = 0;
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
-  e.respondWith(
-    fetch(req)
-      .then((res) => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
-        }
-        return res;
-      })
-      .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('./index.html'))),
-  );
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  // todas las navegaciones (/, /index.html, ...) comparten la misma entrada
+  const key = req.mode === 'navigate' ? new Request(new URL('./index.html', self.registration.scope).href) : req;
+  const local = url.hostname === '127.0.0.1' || url.hostname === 'localhost';
+  const wait = local ? 1500 : 4000;
+
+  const net = fetch(req).then((res) => {
+    if (res.ok && res.type === 'basic') {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(key, copy)).catch(() => {});
+    }
+    return res;
+  });
+  e.waitUntil(net.catch(() => {}));
+  const fromCache = () => caches.match(key, { ignoreSearch: true });
+
+  e.respondWith(new Promise((resolve) => {
+    let done = false;
+    const finish = (r) => { if (!done && r) { done = true; resolve(r); } };
+    const timer = setTimeout(() => { slowUntil = Date.now() + 20000; fromCache().then(finish); }, Date.now() < slowUntil ? 0 : wait);
+    net.then((res) => { clearTimeout(timer); slowUntil = 0; finish(res); })
+      .catch(() => {
+        clearTimeout(timer);
+        fromCache().then((hit) => finish(hit || Response.error()));
+      });
+  }));
 });

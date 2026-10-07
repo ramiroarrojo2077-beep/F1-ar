@@ -21,6 +21,7 @@ final class Browsers {
     private static final String[] CHROMES = {
         "com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary",
     };
+    private static final String[] SAMSUNG = { "com.sec.android.app.sbrowser", "com.sec.android.app.sbrowser.beta" };
     private static final String ACTION_CUSTOM_TABS_CONNECTION = "android.support.customtabs.action.CustomTabsService";
     // extras del protocolo de Custom Tabs (los mismos que usa androidx.browser)
     private static final String EXTRA_SESSION = "android.support.customtabs.extra.SESSION";
@@ -44,16 +45,32 @@ final class Browsers {
         return null;
     }
 
-    /** Cualquier navegador que soporte Custom Tabs (Chrome primero). */
+    /**
+     * Navegador para la pestaña personalizada: Chrome primero (WebXR seguro);
+     * si no, el navegador predeterminado si soporta Custom Tabs; si no, Samsung
+     * Internet (también tiene WebXR); si no, el primero que haya.
+     */
     static String customTabsPackage(Context c) {
         String chrome = chrome(c);
         if (chrome != null) return chrome;
-        List<ResolveInfo> services = c.getPackageManager()
-            .queryIntentServices(new Intent(ACTION_CUSTOM_TABS_CONNECTION), 0);
-        if (services != null && !services.isEmpty() && services.get(0).serviceInfo != null) {
-            return services.get(0).serviceInfo.packageName;
-        }
-        return null;
+        PackageManager pm = c.getPackageManager();
+        List<ResolveInfo> services = pm.queryIntentServices(new Intent(ACTION_CUSTOM_TABS_CONNECTION), 0);
+        if (services == null || services.isEmpty()) return null;
+        java.util.ArrayList<String> providers = new java.util.ArrayList<>();
+        for (ResolveInfo ri : services) if (ri.serviceInfo != null) providers.add(ri.serviceInfo.packageName);
+        String def = defaultBrowser(c);
+        if (def != null && providers.contains(def)) return def;
+        for (String p : SAMSUNG) if (providers.contains(p)) return p;
+        return providers.isEmpty() ? null : providers.get(0);
+    }
+
+    /** Navegador predeterminado para http, o null si no hay uno elegido. */
+    static String defaultBrowser(Context c) {
+        ResolveInfo ri = c.getPackageManager().resolveActivity(
+            new Intent(Intent.ACTION_VIEW, Uri.parse("http://")), PackageManager.MATCH_DEFAULT_ONLY);
+        if (ri == null || ri.activityInfo == null) return null;
+        String p = ri.activityInfo.packageName;
+        return "android".equals(p) ? null : p; // "android" = el selector de apps
     }
 
     /** Abre la URL en una pestaña personalizada. Devuelve false si no se pudo. */

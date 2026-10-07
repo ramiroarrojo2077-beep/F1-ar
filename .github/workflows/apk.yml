@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # el número de versión sale de la cantidad de commits
 
       - uses: actions/setup-java@v4
         with:
@@ -27,7 +29,7 @@ jobs:
       - name: Compilar el APK
         run: |
           export ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
-          VERSION_CODE=${{ github.run_number }} VERSION_NAME="1.0.${{ github.run_number }}" android/build.sh
+          android/build.sh
 
       - uses: actions/upload-artifact@v4
         with:

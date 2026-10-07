@@ -12,9 +12,13 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Servidor HTTP mínimo que sirve los archivos del juego solo en 127.0.0.1.
@@ -31,10 +35,13 @@ public final class LocalServer {
     }
 
     private static final int MAX_HEADER_BYTES = 16 * 1024;
+    /** Ningún pedido puede ocupar un hilo más que esto (lectura + escritura). */
+    private static final long REQUEST_DEADLINE_MS = 20000;
 
     private final Source source;
     private ServerSocket serverSocket;
-    private ExecutorService pool;
+    private ThreadPoolExecutor pool;
+    private ScheduledThreadPoolExecutor watchdog;
     private volatile boolean running;
 
     public LocalServer(Source source) {
@@ -61,14 +68,18 @@ public final class LocalServer {
         if (bound == null) throw last != null ? last : new IOException("No hay puertos libres");
         serverSocket = bound;
         running = true;
-        pool = Executors.newFixedThreadPool(8, new ThreadFactory() {
+        ThreadFactory daemons = new ThreadFactory() {
             private int n = 0;
             @Override public synchronized Thread newThread(Runnable r) {
                 Thread t = new Thread(r, "f1ar-http-" + (n++));
                 t.setDaemon(true);
                 return t;
             }
-        });
+        };
+        // hilos a demanda (máx. 32); si se llenan, se rechaza la conexión en vez de encolarla
+        pool = new ThreadPoolExecutor(2, 32, 30, TimeUnit.SECONDS, new SynchronousQueue<Runnable>(), daemons);
+        watchdog = new ScheduledThreadPoolExecutor(1, daemons);
+        watchdog.setRemoveOnCancelPolicy(true);
         final ServerSocket ss = bound;
         Thread acceptor = new Thread(new Runnable() {
             @Override public void run() { acceptLoop(ss); }
@@ -96,29 +107,45 @@ public final class LocalServer {
             pool.shutdownNow();
             pool = null;
         }
+        if (watchdog != null) {
+            watchdog.shutdownNow();
+            watchdog = null;
+        }
     }
 
     private void acceptLoop(ServerSocket ss) {
         while (running && !ss.isClosed()) {
+            Socket accepted = null;
             try {
-                final Socket client = ss.accept();
-                ExecutorService p = pool;
+                accepted = ss.accept();
+                final Socket client = accepted;
+                ThreadPoolExecutor p = pool;
                 if (p == null) { client.close(); break; }
                 p.execute(new Runnable() {
                     @Override public void run() { handle(client); }
                 });
             } catch (IOException e) {
                 if (!running || ss.isClosed()) break;
-            } catch (RuntimeException e) {
-                // p. ej. el pool se cerró mientras llegaba una conexión
+            } catch (RejectedExecutionException e) {
+                // demasiadas conexiones a la vez (o el pool se cerró): cortar esta
+                closeQuietly(accepted);
                 if (!running) break;
             }
         }
     }
 
-    void handle(Socket client) {
+    void handle(final Socket client) {
+        ScheduledFuture<?> deadline = null;
+        ScheduledThreadPoolExecutor w = watchdog;
+        if (w != null) {
+            try {
+                deadline = w.schedule(new Runnable() {
+                    @Override public void run() { closeQuietly(client); }
+                }, REQUEST_DEADLINE_MS, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException ignored) { }
+        }
         try {
-            client.setSoTimeout(15000);
+            client.setSoTimeout(8000);
             InputStream in = new BufferedInputStream(client.getInputStream());
             OutputStream out = client.getOutputStream();
             String requestLine = readLine(in);
@@ -154,10 +181,16 @@ public final class LocalServer {
             }
             send(out, 200, contentType(path), body, head);
         } catch (IOException ignored) {
-            // el navegador cortó la conexión: no pasa nada
+            // el navegador cortó la conexión (o venció el plazo): no pasa nada
         } finally {
-            try { client.close(); } catch (IOException ignored) { }
+            if (deadline != null) deadline.cancel(false);
+            closeQuietly(client);
         }
+    }
+
+    private static void closeQuietly(Socket s) {
+        if (s == null) return;
+        try { s.close(); } catch (IOException ignored) { }
     }
 
     /** "/js/main.js?v=2" -> "www/js/main.js"; null si la ruta no es válida. */

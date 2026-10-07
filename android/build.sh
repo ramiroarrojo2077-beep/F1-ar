@@ -16,8 +16,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"
 OUT="${OUT:-$HERE/build}"
-VERSION_CODE="${VERSION_CODE:-1}"
-VERSION_NAME="${VERSION_NAME:-1.0}"
+# número de versión = cantidad de commits: crece siempre, igual en la compu y en CI
+VERSION_CODE="${VERSION_CODE:-$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)}"
+VERSION_NAME="${VERSION_NAME:-1.0.$VERSION_CODE}"
 MIN_SDK=24
 TARGET_SDK=34
 
@@ -25,7 +26,8 @@ TARGET_SDK=34
 find_tool() {
   local name="$1"
   if command -v "$name" >/dev/null 2>&1; then command -v "$name"; return; fi
-  for d in ${BUILD_TOOLS:-} ${ANDROID_HOME:+$ANDROID_HOME/build-tools/*} /usr/lib/android-sdk/build-tools/*; do
+  # build-tools más nuevas primero
+  for d in ${BUILD_TOOLS:-} $(ls -d ${ANDROID_HOME:+$ANDROID_HOME/build-tools/*} /usr/lib/android-sdk/build-tools/* 2>/dev/null | sort -rV); do
     [ -x "$d/$name" ] && { echo "$d/$name"; return; }
   done
   return 1
@@ -55,6 +57,9 @@ mkdir -p "$OUT/assets/www" "$OUT/gen" "$OUT/classes" "$OUT/compiled" "$OUT/dex"
 # ---------------------------------------------------------------- 1) el juego (assets/www)
 for f in index.html manifest.webmanifest sw.js; do cp "$ROOT/$f" "$OUT/assets/www/"; done
 for d in css fonts icons js vendor; do cp -R "$ROOT/$d" "$OUT/assets/www/"; done
+# caché del service worker atada a esta versión del APK: al actualizar la app se renueva
+sed -i "s/^const CACHE = 'f1ar-[^']*';/const CACHE = 'f1ar-apk-$VERSION_CODE';/" "$OUT/assets/www/sw.js"
+grep -q "f1ar-apk-$VERSION_CODE" "$OUT/assets/www/sw.js" || { echo "No pude versionar sw.js" >&2; exit 1; }
 # chequeo: todo lo que el service worker precachea tiene que estar
 python3 - "$ROOT/sw.js" "$OUT/assets/www" <<'PY'
 import re, sys, os
@@ -97,6 +102,9 @@ cp "$OUT/base.apk" "$OUT/unaligned.apk"
 (cd "$OUT/dex" && zip -q -X "$OUT/unaligned.apk" classes.dex)
 "$ZIPALIGN" -p -f 4 "$OUT/unaligned.apk" "$OUT/aligned.apk"
 
+# Clave de firma: por defecto, una clave de DEBUG pública (está en el repo) para que
+# cualquiera pueda recompilar y actualizar su propia instalación. Para distribuir
+# públicamente, usá tu propia clave privada: KEYSTORE=/ruta KS_PASS=... KEY_ALIAS=...
 KEYSTORE="${KEYSTORE:-$HERE/f1ar-debug.keystore}"
 KS_PASS="${KS_PASS:-f1ar-debug}"
 KEY_ALIAS="${KEY_ALIAS:-f1ar}"
@@ -113,4 +121,4 @@ fi
 "$ZIPALIGN" -c -p 4 "$OUT/F1-AR.apk"
 
 echo
-echo "Listo: $OUT/F1-AR.apk ($(du -h "$OUT/F1-AR.apk" | cut -f1))"
+echo "Listo: $OUT/F1-AR.apk ($(du -h "$OUT/F1-AR.apk" | cut -f1)) · versión $VERSION_NAME ($VERSION_CODE)"

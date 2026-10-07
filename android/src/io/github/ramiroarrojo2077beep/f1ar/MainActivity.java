@@ -49,6 +49,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         startServer(); // por si el sistema lo cerró mientras estábamos en segundo plano
+        // volvimos a la pantalla de inicio: el juego ya no está abierto en Chrome
+        ServerService.stop(this);
     }
 
     private void startServer() {
@@ -65,14 +67,18 @@ public class MainActivity extends Activity {
     private void play() {
         if (port <= 0) { startServer(); if (port <= 0) return; }
         String url = GameServer.url(port);
+        ServerService.start(this);
         if (Browsers.openCustomTab(this, url, BG)) return;
         if (Browsers.openBrowser(this, url)) return;
+        ServerService.stop(this);
         playInApp();
     }
 
     private void playInChrome() {
         if (port <= 0) { startServer(); if (port <= 0) return; }
+        ServerService.start(this);
         if (!Browsers.openBrowser(this, GameServer.url(port))) {
+            ServerService.stop(this);
             status.setText("No encontré Chrome ni otro navegador. Probá el modo 3D.");
         }
     }
