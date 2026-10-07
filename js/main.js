@@ -12,7 +12,7 @@ import { HUD, contrast } from './hud.js';
 
 // ============================================================ estado general
 const $ = (id) => document.getElementById(id);
-const settings = { laps: 5, cars: 12, incidents: true };
+const settings = { laps: 5, cars: 12, incidents: true, grid: 'quali' };
 const app = {
   mode: null,          // 'ar' | '3d'
   phase: 'menu',       // menu | placing | building | ready | race | results
@@ -127,7 +127,7 @@ const M4 = new THREE.Matrix4();
 
 function newRace() {
   for (const v of carViews) { content.remove(v.mesh); content.remove(v.label); v.label.material.map.dispose(); v.label.material.dispose(); }
-  race = new Race(track, pickDrivers(settings.cars), { laps: settings.laps, incidents: settings.incidents });
+  race = new Race(track, pickDrivers(settings.cars), { laps: settings.laps, incidents: settings.incidents, grid: settings.grid });
   race.on(onRaceEvent);
   carViews = race.cars.map(c => {
     const mesh = makeCarMesh(c.team, c.driver === c.team.drivers[1] ? 1 : 0);
@@ -721,8 +721,8 @@ document.querySelectorAll('.seg').forEach(seg => {
     const b = e.target.closest('button');
     if (!b) return;
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-    const key = seg.dataset.opt, val = Number(b.dataset.v);
-    settings[key] = key === 'incidents' ? val === 1 : val;
+    const key = seg.dataset.opt, raw = b.dataset.v, num = Number(raw);
+    settings[key] = key === 'incidents' ? num === 1 : Number.isNaN(num) ? raw : num;
   });
 });
 

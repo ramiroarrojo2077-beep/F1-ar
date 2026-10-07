@@ -12,7 +12,7 @@ const STEP = 1 / 120;
 const CL = PHYS.carLength, CW = PHYS.carWidth;
 
 export class Race {
-  constructor(track, drivers, { laps = 5, incidents = true } = {}) {
+  constructor(track, drivers, { laps = 5, incidents = true, grid = 'quali' } = {}) {
     this.track = track;
     this.laps = laps;
     this.incidents = incidents;
@@ -30,28 +30,38 @@ export class Race {
     this.firstCross = [];
     this.leaderFinishedAt = null;
     this.acc = 0;
+    this.overtakeCount = 0;
+    this.lastPass = new Map();
+    // las gomas se gastan igual en una carrera corta o larga: el cruce de
+    // rendimiento entre blandas y duras queda siempre a mitad de carrera
+    this.wearScale = 5 / Math.max(1, laps);
 
-    // "forma del día" + clasificación: arma la grilla
+    // "forma del día", gomas y clasificación: arma la grilla
     const cars = drivers.map((drv, i) => {
-      const form = 1 + (Math.random() - 0.5) * 0.02;
+      const form = 1 + (Math.random() - 0.5) * 0.024;
       const pace = drv.team.pace * drv.skill * form;
+      const compound = pickCompound();
       return {
         id: i, driver: drv, team: drv.team, code: drv.code,
-        pace, quali: pace + (Math.random() - 0.5) * 0.024,
-        wear: 0.0012 + Math.random() * 0.003, // pérdida de ritmo por vuelta (gomas)
+        pace, quali: pace + (Math.random() - 0.5) * 0.045,
+        compound, tyre: TYRES[compound],
         launch: 0.82 + Math.random() * 0.3,   // calidad de la largada
-        boost: 1,
+        boost: 1, tow: 0, drs: false, pass: null, yieldT: 0,
         s: 0, d: 0, v: 0, dPrev: 0, latVel: 0,
         lapsDone: 0, lapStart: 0, lastLap: null, bestLap: null,
         finished: false, finishTime: null, retired: false, retireReason: null,
         mistake: null, failAt: null, parked: false,
-        passD: null, passTimer: 0, passTarget: null,
         milestone: -1, gap: 0, interval: 0, pos: 0, gridPos: 0,
         lapNoise: 1, reaction: 0.12 + Math.random() * 0.3 + (1 - drv.skill) * 4,
         spin: 0, nextCorner: 0, lastOvertake: 0,
       };
     });
     cars.sort((a, b) => b.quali - a.quali);
+    if (grid === 'reverse') cars.reverse();
+    else if (grid === 'mixed') {
+      for (let i = cars.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cars[i], cars[j]] = [cars[j], cars[i]]; }
+    }
+    this.gridMode = grid;
     cars.forEach((c, k) => {
       const g = track.gridSlot(k);
       c.s = g.s; c.d = g.d; c.dPrev = g.d;
@@ -170,7 +180,8 @@ export class Race {
       c.retired = true;
       c.retireReason = 'motor';
       c.retiredAt = this.time;
-      c.passD = null;
+      c.pass = null;
+      c.drs = false;
       // al costado más cercano (sin caerse del puente)
       const elevated = track.heightAt(sw) > 0.3;
       const side = c.d >= 0 ? 1 : -1;
@@ -181,10 +192,10 @@ export class Race {
     // salida: tiempo de reacción
     if (this.time < c.reaction) { c.v = 0; return; }
 
-    const tyre = 1 - c.wear * Math.max(0, c.lapsDone);
-    let target = track.speedAt(c.s) * c.pace * c.lapNoise * tyre;
+    let target = track.speedAt(c.s) * c.pace * c.lapNoise * this.tyreFactor(c);
     const k = Math.abs(track.curvAt(c.s));
     c.boost = 1;
+    if (c.yieldT > 0) { target *= 0.965; c.yieldT -= dt; } // cede ante un ataque por adentro
 
     if (c.retired) {
       // baja la velocidad y se estaciona al costado
@@ -216,7 +227,7 @@ export class Race {
     // desvío por fuera de la trazada = más lento en curva
     const rl = track.racingAt(c.s);
     const off = Math.abs(c.d - rl);
-    if (k > 1 / 70) target *= 1 - 0.012 * Math.max(0, off - 1.2);
+    if (k > 1 / 70) target *= 1 - (c.pass ? 0.003 : 0.012) * Math.max(0, off - 1.2);
 
     // autos cercanos
     let ahead = null, aheadDs = Infinity, behindLapper = null;
@@ -227,54 +238,73 @@ export class Race {
       if (ds < 0 && ds > -35 && o.s - c.s > L / 2 && !c.finished) behindLapper = o; // me están por doblar
     }
 
-    // rebufo en recta y DRS (a menos de 1 s del de adelante, desde la vuelta 2)
-    if (ahead && !c.retired && k < 1 / 250) {
-      const gapT = aheadDs / Math.max(c.v, 1);
-      if (aheadDs < 34 && aheadDs > CL) c.boost = 1 + 0.035 * (1 - aheadDs / 34);
-      if (c.lapsDone >= 1 && gapT < 1 && track.speedAt(c.s) > PHYS.vTop * 0.9) c.boost += 0.06;
-      target *= c.boost;
-    }
+    // rebufo y DRS: se ganan siguiendo de cerca en recta y duran toda la recta
+    // (aunque el auto se abra para pasar); el DRS se cierra al frenar
+    const onStraight = k < 1 / 250 && track.speedAt(c.s) > PHYS.vTop * 0.8;
+    if (ahead && onStraight && aheadDs < 36 && aheadDs > CL * 0.8 && !c.retired) c.tow = Math.max(c.tow, 1 - aheadDs / 36);
+    else c.tow = Math.max(0, c.tow - dt * 0.7);
+    if (!onStraight || c.retired || c.finished) c.drs = false;
+    else if (!c.drs && c.lapsDone >= 1 && ahead && !ahead.retired && aheadDs / Math.max(c.v, 1) < 1.0) c.drs = true;
+    if (onStraight && !c.retired) c.boost += 0.045 * c.tow + (c.drs ? 0.055 : 0);
+    if (c.pass) c.boost += 0.02; // empujando para pasar
+    target *= c.boost;
     if (this.time < 5) target *= Math.min(1, c.launch);
 
     // bandera azul: hacerse a un lado
-    let desired = c.passD !== null ? c.passD : rl;
+    let desired = rl;
     if (behindLapper && !c.retired) {
       desired = behindLapper.d > 0 ? -this.lim * 0.85 : this.lim * 0.85;
       target *= 0.97;
     }
 
-    if (ahead && !c.retired && !c.mistake) {
-      const closing = target - ahead.v;
+    // ¿intento de sobrepaso?
+    if (ahead && !c.pass && !c.retired && !c.mistake && !c.finished && aheadDs < 26) {
       const lapped = ahead.s < c.s - L / 2 || ahead.retired || ahead.mistake;
-      if (aheadDs < 22 && (closing > 0.25 || lapped) && c.passD === null) {
-        const left = ahead.d - (CW + 1.1), right = ahead.d + (CW + 1.1);
-        const okL = left >= -this.lim, okR = right <= this.lim;
-        if (okL || okR) {
-          // preferir el lado de adentro de la próxima curva
-          const kNext = track.curvAt(c.s + 45);
-          let side = kNext > 0 ? 1 : -1;
-          if (side > 0 && !okR) side = -1;
-          if (side < 0 && !okL) side = 1;
-          c.passD = side > 0 ? right : left;
-          c.passTarget = ahead;
-          c.passTimer = 4;
+      const edge = c.pace * this.tyreFactor(c) / (ahead.pace * this.tyreFactor(ahead)) - 1;
+      // se tira cuando tiene con qué: rebufo/DRS en recta, mucho más ritmo,
+      // o pegado atrás llegando a una frenada (para meterse por adentro)
+      const braking = track.speedAt(c.s + 25) < c.v * 0.92;
+      const chance = (onStraight && (c.drs || c.tow > 0.45)) || edge > 0.008 || (braking && aheadDs < 11 && edge > -0.004);
+      if (lapped || (chance && target > ahead.v - 0.5)) {
+        const kNext = track.curvAt(c.s + 35);
+        let side = kNext > 0 ? 1 : -1; // por adentro de la próxima curva
+        if (Math.abs(ahead.d + side * (CW + 1.0)) > this.lim) side = -side;
+        if (Math.abs(ahead.d + side * (CW + 1.0)) <= this.lim + 0.3) c.pass = { target: ahead, side, t: 0 };
+      }
+    }
+
+    // maniobra en curso
+    if (c.pass) {
+      const p = c.pass, t = p.target;
+      p.t += dt;
+      const rel = wrapDelta(c.s - t.s, L); // > 0: ya lo pasé
+      const alongside = Math.abs(rel) < CL + 1;
+      let lane = t.d + p.side * (CW + 1.0);
+      if (Math.abs(lane) > this.lim) {
+        const other = t.d - p.side * (CW + 1.0);
+        if (!alongside && Math.abs(other) <= this.lim) { p.side = -p.side; lane = other; } else lane = clamp(lane, -this.lim, this.lim);
+      }
+      if (rel > CL + 2.5 || rel < -32 || (!alongside && p.t > 7) || c.mistake || t.finished !== c.finished) {
+        c.pass = null; // terminó (bien o mal): vuelve a su trazada de a poco
+      } else {
+        desired = lane;
+        // frenada tardía por adentro: el que defiende por afuera tiene que ceder
+        const kNext = track.curvAt(c.s + 30);
+        const inside = Math.sign(kNext) === p.side && Math.abs(kNext) > 1 / 60;
+        if (inside && rel > -CL * 1.6) {
+          target *= 1.045;
+          if (!t.pass) t.yieldT = 0.35;
         }
       }
-      // seguir al de adelante sin chocarlo
+    }
+
+    // seguir al de adelante (en el mismo carril) sin chocarlo
+    if (ahead && !c.retired && !c.mistake) {
       const minGap = CL + 0.8, followDist = CL + 3 + c.v * 0.12;
       if (aheadDs < followDist) {
         const cap = ahead.v + (aheadDs - minGap) * 1.2;
         target = Math.min(target, Math.max(0, cap));
       }
-    }
-
-    // fin de la maniobra de sobrepaso
-    if (c.passD !== null) {
-      c.passTimer -= dt;
-      const t = c.passTarget;
-      const done = !t || wrapDelta(c.s - t.s, L) > CL + 3 || c.passTimer <= 0;
-      if (done) { c.passD = null; c.passTarget = null; }
-      else if (t) c.passD = clamp(c.passD + (t.d + Math.sign(c.passD - t.d) * (CW + 1.1) - c.passD) * dt * 2, -this.lim, this.lim);
     }
 
     // integrar velocidad
@@ -291,6 +321,12 @@ export class Race {
     }
     c.latVel = (c.d - c.dPrev) / dt;
     c.dPrev = c.d;
+  }
+
+  // rendimiento de las gomas: las blandas arrancan más rápidas y se gastan antes
+  tyreFactor(c) {
+    const lapsRun = Math.max(0, c.s / this.L);
+    return 1 + c.tyre.grip - c.tyre.wear * this.wearScale * lapsRun;
   }
 
   _maybeMistake(c) {
@@ -310,7 +346,7 @@ export class Race {
           type: spin ? 'spin' : 'wide', t: 0, dur: spin ? 3.2 : 1.8,
           side: nc.dir > 0 ? -1 : 1, spinDir: Math.random() < 0.5 ? 1 : -1,
         };
-        c.passD = null;
+        c.pass = null;
         this.emit('mistake', { car: c, corner: nc, type: c.mistake.type });
       }
     } else if (c.s > target + 40) {
@@ -373,7 +409,12 @@ export class Race {
         const a = next[i], b = next[i + 1];
         const pa = prev.indexOf(a), pb = prev.indexOf(b);
         if (pa > pb && !a.retired && !b.retired && !b.mistake && Math.abs(wrapDelta(a.s - b.s, this.L)) < 20 && this.clock - a.lastOvertake > 2) {
+          // si b lo había pasado recién, es un ida y vuelta: no se anuncia
+          const back = this.lastPass.get(b.id + '>' + a.id);
+          this.lastPass.set(a.id + '>' + b.id, this.clock);
+          if (back !== undefined && this.clock - back < 6) continue;
           a.lastOvertake = this.clock;
+          this.overtakeCount++;
           this.emit('overtake', { car: a, other: b, pos: i + 1 });
         }
       }
@@ -406,6 +447,17 @@ export class Race {
       return { pos: i + 1, car: c, gap, pts, best: c.bestLap };
     });
   }
+}
+
+export const TYRES = {
+  S: { name: 'Blandas', color: '#e10600', grip: 0.012, wear: 0.0105 },
+  M: { name: 'Medias', color: '#ffd400', grip: 0.0, wear: 0.0055 },
+  H: { name: 'Duras', color: '#f0f0f0', grip: -0.009, wear: 0.0022 },
+};
+
+function pickCompound() {
+  const r = Math.random();
+  return r < 0.38 ? 'S' : r < 0.78 ? 'M' : 'H';
 }
 
 export function wrapDelta(d, L) {
