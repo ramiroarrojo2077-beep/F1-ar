@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0c10">
+  <title>F1 AR · Gran Premio en realidad aumentada</title>
+  <meta name="description" content="Armá un autódromo de F1 en tu mesa con realidad aumentada y mirá una carrera simulada.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/addons/": "./vendor/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Todo lo que está acá adentro se superpone a la cámara en AR (dom-overlay) -->
+  <div id="overlay">
+
+    <!-- ===================== MENÚ ===================== -->
+    <section id="menu" class="screen">
+      <div class="menu-card">
+        <header class="brand">
+          <div class="logo"><span>F1</span><b>AR</b></div>
+          <p class="tag">Gran Premio en realidad aumentada</p>
+        </header>
+
+        <div class="circuit">
+          <svg id="menu-map" viewBox="0 0 100 100" aria-label="Mapa del circuito"></svg>
+          <div class="circuit-info">
+            <h2 id="circuit-name">Autódromo</h2>
+            <p id="circuit-sub"></p>
+            <dl id="circuit-stats"></dl>
+          </div>
+        </div>
+
+        <div class="options">
+          <div class="opt">
+            <label>Vueltas</label>
+            <div class="seg" data-opt="laps">
+              <button data-v="3">3</button><button data-v="5" class="on">5</button><button data-v="8">8</button><button data-v="12">12</button>
+            </div>
+          </div>
+          <div class="opt">
+            <label>Autos</label>
+            <div class="seg" data-opt="cars">
+              <button data-v="8">8</button><button data-v="12" class="on">12</button><button data-v="16">16</button><button data-v="20">20</button>
+            </div>
+          </div>
+          <div class="opt">
+            <label>Incidentes</label>
+            <div class="seg" data-opt="incidents">
+              <button data-v="1" class="on">Sí</button><button data-v="0">No</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="cta">
+          <button id="btn-ar" class="btn primary big" disabled>
+            <span class="ico">◎</span> Jugar en AR
+          </button>
+          <button id="btn-3d" class="btn big">
+            <span class="ico">◆</span> Jugar en 3D
+          </button>
+          <p id="ar-note" class="note">Buscando soporte de realidad aumentada…</p>
+        </div>
+        <p id="stats-line" class="note small"></p>
+      </div>
+    </section>
+
+    <!-- ===================== AR: COLOCAR ===================== -->
+    <section id="place" class="panel bottom hidden ui">
+      <p class="hint" id="place-hint">Mové el teléfono despacio apuntando al piso o a una mesa…</p>
+      <div class="row">
+        <label class="size">Tamaño <b id="size-val">1.2 m</b>
+          <input id="size" type="range" min="0.4" max="4" step="0.1" value="1.2">
+        </label>
+        <button id="btn-rot" class="btn small" title="Girar">⟳ Girar</button>
+      </div>
+      <button id="btn-place" class="btn primary" disabled>Colocar el autódromo acá</button>
+    </section>
+
+    <!-- ===================== CONSTRUCCIÓN ===================== -->
+    <section id="build" class="panel top hidden ui">
+      <p id="build-text">Construyendo el autódromo…</p>
+      <div class="bar"><i id="build-bar"></i></div>
+      <button id="btn-fast" class="btn small ghost">⏩ Acelerar</button>
+    </section>
+
+    <!-- ===================== PRONÓSTICO ===================== -->
+    <section id="predict" class="panel bottom hidden ui">
+      <h3>¿Quién creés que gana?</h3>
+      <p class="note">Elegí a tu piloto. Así quedó la grilla de largada:</p>
+      <div id="predict-list" class="chips"></div>
+      <div class="row">
+        <button id="btn-go" class="btn primary">🚦 ¡Largar!</button>
+        <button id="btn-move" class="btn small ghost hidden">Mover pista</button>
+      </div>
+    </section>
+
+    <!-- ===================== HUD DE CARRERA ===================== -->
+    <section id="hud" class="hidden">
+      <div id="topbar" class="ui">
+        <div class="lapbox"><small>VUELTA</small><b id="lap">1/5</b></div>
+        <div class="timebox"><b id="rtime">0:00.000</b></div>
+        <div class="tools">
+          <button id="btn-sound" class="icon" title="Sonido">🔊</button>
+          <button id="btn-labels" class="icon on" title="Etiquetas">🏷</button>
+          <button id="btn-speed" class="icon" title="Velocidad">×1</button>
+          <button id="btn-cam" class="icon hidden" title="Cámara">🎥</button>
+          <button id="btn-exit" class="icon" title="Salir">✕</button>
+        </div>
+      </div>
+      <div id="tower" class="ui"></div>
+      <svg id="minimap" class="ui" viewBox="0 0 100 100"></svg>
+      <div id="lights" class="hidden"><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="banner" class="hidden"></div>
+      <div id="ticker"></div>
+      <div id="carcard" class="ui hidden"></div>
+      <div id="mypick" class="hidden"></div>
+    </section>
+
+    <!-- ===================== RESULTADOS ===================== -->
+    <section id="results" class="screen hidden ui">
+      <div class="menu-card wide">
+        <h2 class="checker">Resultados</h2>
+        <div id="podium"></div>
+        <div id="pick-result"></div>
+        <table id="results-table"></table>
+        <div class="cta row">
+          <button id="btn-again" class="btn primary">🔁 Revancha</button>
+          <button id="btn-menu" class="btn">Menú</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="toast" class="hidden"></div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
