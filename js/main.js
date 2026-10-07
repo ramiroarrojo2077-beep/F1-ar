@@ -125,16 +125,19 @@ const P = new THREE.Vector3(), F = new THREE.Vector3(), R = new THREE.Vector3(),
 const UP = new THREE.Vector3(0, 1, 0);
 const M4 = new THREE.Matrix4();
 
-function newRace() {
+function newRace({ attract = false } = {}) {
   for (const v of carViews) { content.remove(v.mesh); content.remove(v.label); v.label.material.map.dispose(); v.label.material.dispose(); }
-  race = new Race(track, pickDrivers(settings.cars), { laps: settings.laps, incidents: settings.incidents, grid: settings.grid });
-  race.on(onRaceEvent);
+  race = attract
+    ? new Race(track, pickDrivers(10), { laps: 999, incidents: false, grid: 'mixed' })
+    : new Race(track, pickDrivers(settings.cars), { laps: settings.laps, incidents: settings.incidents, grid: settings.grid });
+  if (!attract) race.on(onRaceEvent);
   carViews = race.cars.map(c => {
     const mesh = makeCarMesh(c.team, c.driver === c.team.drivers[1] ? 1 : 0);
     const label = makeLabel();
     content.add(mesh, label);
-    return { car: c, mesh, label, drop: 0, labelPos: -1, labelState: '' };
+    return { car: c, mesh, label, drop: attract ? 1 : 0, labelPos: -1, labelState: '' };
   });
+  if (attract) { spreadAttractCars(race); placeCars(0); return; }
   app.selected = null;
   app.pick = null;
   hud.setupTower(race, (id) => selectCar(id));
@@ -165,7 +168,7 @@ function placeCars(dt) {
     v.mesh.position.set(P.x, y, P.z);
     v.mesh.visible = v.drop > 0;
     // etiqueta
-    v.label.visible = app.labels && v.drop >= 1 && !(app.mode === '3d' && app.camMode === 'chase' && followCar() === v);
+    v.label.visible = app.labels && !app.attract && v.drop >= 1 && !(app.mode === '3d' && app.camMode === 'chase' && followCar() === v);
     v.label.position.set(P.x, y + 4.6, P.z);
     const st = c.retired ? 'out' : c.finished ? 'fin' : '';
     if (v.labelPos !== c.pos || v.labelState !== st) { drawLabel(v.label, c, st); v.labelPos = c.pos; v.labelState = st; }
@@ -394,17 +397,88 @@ function rematch() {
 
 function toMenu() {
   if (arSession.session) { arSession.end(); return; } // onEnd vuelve acá
+  enterAttract();
+}
+
+// ============================================================ vitrina del menú
+// Detrás del menú se ve el autódromo terminado con autos dando vueltas y la
+// cámara girando despacio.
+let attractAngle = 2.6;
+
+function enterAttract() {
   app.phase = 'menu';
   app.mode = null;
+  app.attract = true;
   controls.enabled = false;
+  camera.near = 0.5; camera.far = 5000; camera.fov = 50;
+  camera.updateProjectionMatrix();
+  scene.background = sky;
+  scene.fog = fog;
+  floor.visible = true;
+  anchor.visible = true;
+  anchor.position.set(0, 0, 0);
+  anchor.quaternion.identity();
+  setScale(1);
+  if (sun.shadow.mapSize.x !== 2048) {
+    sun.shadow.mapSize.set(2048, 2048);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  }
+  outline.visible = false;
+  paver.visible = false;
+  finishBuildInstantly();
+  newRace({ attract: true });
   sound.silenceEngines();
+  keepAwake(false);
   hud.show(['menu']);
   updateStatsLine();
 }
 
+function spreadAttractCars(r) {
+  const n = r.cars.length;
+  r.cars.forEach((c, k) => {
+    c.s = r.L * (3 + k / n);
+    c.lapsDone = Math.floor(c.s / r.L);
+    c.milestone = Math.floor(c.s / 8);
+    c.d = c.dPrev = track.racingAt(c.s);
+    c.v = track.speedAt(c.s) * 0.9;
+  });
+  r.state = 'racing';
+  r.time = 10;
+}
+
+function updateAttractCamera(dt) {
+  attractAngle += dt * 0.045;
+  const dist = frameDistance() * 0.92;
+  const target = new THREE.Vector3(0, BASE_H, -4);
+  camera.position.set(
+    target.x + Math.sin(attractAngle) * dist * 0.82,
+    target.y + dist * 0.5,
+    target.z + Math.cos(attractAngle) * dist * 0.82,
+  );
+  camera.lookAt(target);
+}
+
+// mantener la pantalla prendida mientras se juega
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } else if (!on && wakeLock) {
+      const w = wakeLock; wakeLock = null; await w.release();
+    }
+  } catch { /* sin permiso o no soportado */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && app.phase !== 'menu') keepAwake(true);
+});
+
 // ============================================================ modo 3D
 function start3D() {
   sound.init();
+  keepAwake(true);
+  app.attract = false;
   app.mode = '3d';
   app.placed = true;
   camera.near = 0.5; camera.far = 5000; camera.fov = 50;
@@ -426,14 +500,18 @@ function start3D() {
   startBuild();
 }
 
+function frameDistance() {
+  const v = THREE.MathUtils.degToRad(camera.fov) / 2;
+  const hTan = Math.tan(v) * camera.aspect;
+  return Math.max(EXTENT * 0.56 / hTan, EXTENT * 0.5 / Math.tan(v)) * 1.05;
+}
+
 // encuadre inicial: desde el lado de las eses, mirando a la tribuna principal,
 // a la distancia justa para que la maqueta entre en pantalla (vertical u horizontal)
 function frameCamera() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  const v = THREE.MathUtils.degToRad(camera.fov) / 2;
-  const hTan = Math.tan(v) * camera.aspect;
-  const dist = Math.max(EXTENT * 0.56 / hTan, EXTENT * 0.5 / Math.tan(v)) * 1.05;
+  const dist = frameDistance();
   controls.target.set(0, BASE_H, -6);
   const dir = new THREE.Vector3(0.2, 0.66, -1).normalize();
   camera.position.copy(controls.target).addScaledVector(dir, dist);
@@ -517,6 +595,8 @@ scene.add(arSession.reticle);
 
 async function startAR() {
   sound.init();
+  keepAwake(true);
+  app.attract = false;
   try {
     camera.near = 0.01; camera.far = 60;
     camera.updateProjectionMatrix();
@@ -570,16 +650,8 @@ arSession.onSelect = (e) => {
   if (ray) pickCarByRay(ray, 0.06);
 };
 arSession.onEnd = () => {
-  app.mode = null;
-  anchor.visible = true;
-  anchor.position.set(0, 0, 0);
-  anchor.quaternion.identity();
   arSession.reticle.visible = false;
-  outline.visible = false;
-  app.phase = 'menu';
-  hud.show(['menu']);
-  sound.silenceEngines();
-  updateStatsLine();
+  enterAttract();
 };
 
 const tmpQ = new THREE.Quaternion();
@@ -675,6 +747,7 @@ renderer.setAnimationLoop((time, frame) => {
   }
 
   if (app.phase === 'building') updateBuild(dt);
+  if (app.phase === 'menu' && app.attract && race) { race.update(dt); updateAttractCamera(dt); }
   if (race && (app.phase === 'race' || app.phase === 'results' || (app.phase === 'placing' && race.state !== 'grid'))) race.update(dt * app.timeScale);
 
   const local = placeCars(dt);
@@ -775,7 +848,7 @@ function updateStatsLine() {
   const s = loadStats();
   $('stats-line').textContent = s.races ? `Carreras: ${s.races} · Pronósticos acertados: ${s.hits}/${s.picks}` : '';
 }
-updateStatsLine();
+enterAttract();
 
 // ============================================================ soporte AR
 arSupport().then(({ ok, why }) => {
