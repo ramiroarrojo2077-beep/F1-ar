@@ -1,0 +1,36 @@
+name: APK de Android
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Plataforma Android 34
+        run: |
+          if [ ! -f "$ANDROID_HOME/platforms/android-34/android.jar" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" > /dev/null
+          fi
+
+      - name: Compilar el APK
+        run: |
+          export ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
+          VERSION_CODE=${{ github.run_number }} VERSION_NAME="1.0.${{ github.run_number }}" android/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: F1-AR-apk
+          path: android/build/F1-AR.apk
+          if-no-files-found: error

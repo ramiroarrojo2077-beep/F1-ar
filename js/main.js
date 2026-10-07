@@ -784,6 +784,11 @@ arSupport().then(({ ok, why }) => {
   if (!ok) $('btn-3d').classList.add('primary');
 });
 
+// juego sin conexión (y app de Android aunque se cierre el servidor interno)
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('service worker:', err));
+}
+
 // para pruebas automáticas
 window.__f1ar = { app, get race() { return race; }, settings, start3D, startRace, finishBuildInstantly, hud, contrast };
 
